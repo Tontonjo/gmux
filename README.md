@@ -5,13 +5,23 @@
 Interface simple pour **tmux**, faite par quelqu'un qui oublie toujours comment
 s'en servir : un **gestionnaire de sessions** pour créer, rejoindre, renommer ou
 tuer une session, un **menu** pour gérer fenêtres et panneaux sans retenir un
-seul raccourci, et les **infos du serveur** directement dans la barre tmux.
+seul raccourci.
 
-<!-- Capture d'écran à ajouter ici -->
+<img width="1013" height="527" alt="image" src="https://github.com/user-attachments/assets/dcb3ffd9-00dd-48ff-9ee6-6afd3684b1b4" />
 
 Tout se pilote **à la souris comme au clavier** : survol en surbrillance, clic
 simple, molette, touches rapides. Un seul fichier Python, **aucune dépendance**
 en dehors de tmux, compatible tmux 3.1 et plus récent.
+
+## Tonton Jo
+### Join the community:
+[![Youtube](https://badgen.net/badge/Youtube/Subscribe)](http://youtube.com/channel/UCnED3K6K5FDUp-x_8rwpsZw?sub_confirmation=1)
+[![Discord Tonton Jo](https://badgen.net/discord/members/h6UcpwfGuJ?label=Discord%20Tonton%20Jo%20&icon=discord)](https://discord.gg/h6UcpwfGuJ)
+### Support my work, give a thanks and help the youtube channel:
+[![Ko-Fi](https://badgen.net/badge/Buy%20me%20a%20Coffee/Link?icon=buymeacoffee)](https://ko-fi.com/tontonjo)
+[![Infomaniak](https://badgen.net/badge/Infomaniak/Affiliated%20link?icon=K)](https://www.infomaniak.com/goto/fr/home?utm_term=6151f412daf35)
+
+<!-- [Tutoriel vidéo et démonstration](https://youtu.be/...) -->
 
 ## Installation
 
@@ -71,12 +81,4 @@ CPU, RAM et disque passent du vert au jaune puis au rouge selon la charge.
 - `Ctrl+b m` remplace le raccourci tmux "marquer le panneau".
 - Sous **macOS**, la barre n'affiche que le disque sans `pip install psutil`.
 
-## Tonton Jo
-### Join the community:
-[![Youtube](https://badgen.net/badge/Youtube/Subscribe)](http://youtube.com/channel/UCnED3K6K5FDUp-x_8rwpsZw?sub_confirmation=1)
-[![Discord Tonton Jo](https://badgen.net/discord/members/h6UcpwfGuJ?label=Discord%20Tonton%20Jo%20&icon=discord)](https://discord.gg/h6UcpwfGuJ)
-### Support my work, give a thanks and help the youtube channel:
-[![Ko-Fi](https://badgen.net/badge/Buy%20me%20a%20Coffee/Link?icon=buymeacoffee)](https://ko-fi.com/tontonjo)
-[![Infomaniak](https://badgen.net/badge/Infomaniak/Affiliated%20link?icon=K)](https://www.infomaniak.com/goto/fr/home?utm_term=6151f412daf35)
 
-<!-- [Tutoriel vidéo et démonstration](https://youtu.be/...) -->
