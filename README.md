@@ -31,7 +31,7 @@ Prérequis : `tmux` et `python3` (déjà présent sur Debian, Ubuntu et Raspberr
 sudo apt install -y tmux python3
 sudo curl -fsSL https://raw.githubusercontent.com/Tontonjo/gmux/main/gmux -o /usr/local/bin/gmux
 sudo chmod +x /usr/local/bin/gmux
-gmux install
+gmux
 ```
 
 `gmux install` ajoute une ligne dans `~/.tmux.conf` (config générée dans
