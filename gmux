@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # gmux: simple tmux manager (mouse + keyboard)
-# Version: 1.7.0
+# Version: 1.7.1
 """
 Usage:
   gmux              outside tmux: session manager / inside tmux: menu
@@ -12,7 +12,7 @@ Usage:
   gmux uninstall    remove the gmux config
   gmux -v           show the version
 """
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 
 import curses
 import json
@@ -592,4 +592,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:  # Ctrl+C: quiet exit (curses already restored the terminal)
+        sys.exit(130)
