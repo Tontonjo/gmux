@@ -65,7 +65,7 @@ nouveau clic le referme.
 - Session : renommer, nouvelle, changer, détacher
 - Réglages : souris, synchro des panneaux, recharger la config
 
-**Barre tmux** : à côté du nom de session, rafraîchi toutes les 2 secondes :
+**Barre tmux** : Cliquer sur le nom de la session pour ouvrir le menu
 
 ```
 [essai] CPU 4% RAM 1.2G/3.8G IO r12K w3K NET ↓120K ↑40K / 45%
