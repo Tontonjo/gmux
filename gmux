@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-# gmux: interface simple de gestion tmux (souris + clavier)
-# Version: 1.5.1
+# gmux: simple tmux manager (mouse + keyboard)
+# Version: 1.6.1
 """
 Usage:
-  gmux              hors tmux: gestionnaire de sessions / dans tmux: menu de gestion
-  gmux NOM          s'attache à la session NOM, la crée si elle n'existe pas
-  gmux tui          gestionnaire de sessions (liste, créer, attacher, renommer, tuer)
-  gmux menu         menu: fenêtres, panneaux, session, réglages
-  gmux status       infos de perf pour la barre tmux
-  gmux install      génère la config gmux, la lie à ~/.tmux.conf et la recharge
-                    (à relancer après une mise à jour de gmux)
-  gmux uninstall    retire la config gmux
-  gmux -v           affiche la version
+  gmux              outside tmux: session manager / inside tmux: menu
+  gmux NAME         attach to session NAME, create it if it does not exist
+  gmux tui          session manager (list, create, attach, rename, kill)
+  gmux menu         menu: windows, panes, session, settings
+  gmux install      generate the gmux config, link it from ~/.tmux.conf and reload
+                    (run again after updating gmux)
+  gmux uninstall    remove the gmux config
+  gmux -v           show the version
 """
-VERSION = "1.5.1"
+VERSION = "1.6.1"
 
 import curses
 import json
@@ -33,7 +32,7 @@ GMUX_CONF = os.path.expanduser("~/.config/gmux/gmux.tmux.conf")
 # ---------------------------------------------------------------- tmux helpers
 
 def tmux(*args):
-    """Lance une commande tmux. Retourne (ok, sortie ou message d'erreur)."""
+    """Run a tmux command. Return (ok, output or error message)."""
     r = subprocess.run(["tmux", *args], capture_output=True, text=True)
     return r.returncode == 0, (r.stdout if r.returncode == 0 else r.stderr.strip())
 
@@ -42,7 +41,7 @@ def list_sessions():
     fmt = "#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created}"
     ok, out = tmux("list-sessions", "-F", fmt)
     if not ok:
-        return []  # pas de serveur = pas de session
+        return []  # no server = no session
     sessions = []
     for line in out.splitlines():
         name, win, att, created = line.split("\t")
@@ -63,8 +62,8 @@ def current_session():
 WHEEL_UP = curses.BUTTON4_PRESSED
 WHEEL_DOWN = getattr(curses, "BUTTON5_PRESSED", 0x200000)
 LIST_TOP = 3
-BUTTONS = [("Entrée", "Attacher", "attach"), ("n", "Nouvelle", "new"),
-           ("r", "Renommer", "rename"), ("x", "Tuer", "kill"), ("q", "Quitter", "quit")]
+BUTTONS = [("Enter", "Attach", "attach"), ("n", "New", "new"),
+           ("r", "Rename", "rename"), ("x", "Kill", "kill"), ("q", "Quit", "quit")]
 KEYS = {"\n": "attach", "\r": "attach", curses.KEY_ENTER: "attach",
         "n": "new", "r": "rename", "x": "kill", "d": "kill", curses.KEY_DC: "kill",
         "q": "quit", "\x1b": "quit",
@@ -77,19 +76,19 @@ class SessionTUI:
         self.scr = scr
         self.sel = self.top = 0
         self.msg = ""
-        self.buttons = []  # [(x0, x1, action)] pour les clics
+        self.buttons = []  # [(x0, x1, action)] for clicks
         self.current = current_session()
         curses.curs_set(0)
         curses.use_default_colors()
-        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)   # sélection
-        curses.init_pair(2, curses.COLOR_GREEN, -1)                  # attachée
-        curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_WHITE)  # boutons
+        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)   # selection
+        curses.init_pair(2, curses.COLOR_GREEN, -1)                  # attached
+        curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_WHITE)  # buttons
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
         scr.keypad(True)
-        scr.timeout(2000)  # rafraîchit la liste toutes les 2 s
+        scr.timeout(2000)  # refresh the list every 2 s
         self.reload()
 
-    # -- données
+    # -- data
     def reload(self, select=None):
         self.sessions = list_sessions()
         if select is not None:
@@ -100,14 +99,14 @@ class SessionTUI:
     def selected(self):
         return self.sessions[self.sel]["name"] if self.sessions else None
 
-    # -- affichage
+    # -- display
     def draw(self):
         s = self.scr
         s.erase()
         h, w = s.getmaxyx()
-        title = f" gmux v{VERSION}  Sessions tmux ".ljust(w)
+        title = f" gmux v{VERSION}  tmux sessions ".ljust(w)
         s.addnstr(0, 0, title, w, curses.A_REVERSE | curses.A_BOLD)
-        s.addnstr(2, 2, f"{'SESSION':<24} {'FEN.':>4}  {'ÉTAT':<10} CRÉÉE", w - 3, curses.A_DIM)
+        s.addnstr(2, 2, f"{'SESSION':<24} {'WIN':>4}  {'STATE':<10} CREATED", w - 3, curses.A_DIM)
 
         rows = max(1, h - LIST_TOP - 2)
         if self.sel < self.top:
@@ -116,12 +115,12 @@ class SessionTUI:
             self.top = self.sel - rows + 1
 
         if not self.sessions:
-            s.addnstr(LIST_TOP, 2, "Aucune session. Appuie sur n (ou clique Nouvelle).", w - 3)
+            s.addnstr(LIST_TOP, 2, "No session. Press n (or click New).", w - 3)
         for i, ses in enumerate(self.sessions[self.top:self.top + rows]):
             idx = self.top + i
-            state = "● attachée" if ses["attached"] else ""
+            state = "● attached" if ses["attached"] else ""
             mark = "*" if ses["name"] == self.current else " "
-            created = time.strftime("%d.%m %H:%M", time.localtime(ses["created"]))
+            created = time.strftime("%b %d %H:%M", time.localtime(ses["created"]))
             line = f"{mark} {ses['name'][:24]:<24} {ses['windows']:>4}  {state:<10} {created}"
             attr = curses.color_pair(1) if idx == self.sel else (
                 curses.color_pair(2) if ses["attached"] else 0)
@@ -133,7 +132,7 @@ class SessionTUI:
         s.refresh()
 
     def draw_buttons(self, y, items):
-        """Dessine des boutons cliquables sur la ligne y et mémorise leur zone."""
+        """Draw clickable buttons on line y and remember their area."""
         w = self.scr.getmaxyx()[1]
         self.scr.move(y, 0)
         self.scr.clrtoeol()
@@ -146,9 +145,9 @@ class SessionTUI:
             self.buttons.append((x, x + len(text), act))
             x += len(text) + 1
 
-    # -- entrées
+    # -- input
     def mouse(self):
-        """Traduit un évènement souris en action (ou None)."""
+        """Translate a mouse event into an action (or None)."""
         try:
             _, x, y, _, b = curses.getmouse()
         except curses.error:
@@ -171,13 +170,13 @@ class SessionTUI:
         try:
             ch = self.scr.get_wch()
         except curses.error:
-            return None  # timeout: simple rafraîchissement
+            return None  # timeout: plain refresh
         if ch == curses.KEY_MOUSE:
             return self.mouse()
         return KEYS.get(ch)
 
     def prompt(self, label, init=""):
-        """Saisie d'une ligne. Entrée valide, Échap annule (retourne None)."""
+        """Read one line. Enter confirms, Esc cancels (returns None)."""
         buf = list(init)
         h, w = self.scr.getmaxyx()
         self.scr.timeout(-1)
@@ -188,7 +187,7 @@ class SessionTUI:
                 self.scr.move(h - 2, 0)
                 self.scr.clrtoeol()
                 self.scr.addnstr(h - 2, 1, text, w - 2, curses.A_BOLD)
-                self.draw_buttons(h - 1, [("Entrée Valider", "ok"), ("Échap Annuler", "cancel")])
+                self.draw_buttons(h - 1, [("Enter OK", "ok"), ("Esc Cancel", "cancel")])
                 self.scr.move(h - 2, min(1 + len(text), w - 2))
                 ch = self.scr.get_wch()
                 act = self.mouse() if ch == curses.KEY_MOUSE else None
@@ -212,10 +211,10 @@ class SessionTUI:
                 self.scr.move(h - 2, 0)
                 self.scr.clrtoeol()
                 self.scr.addnstr(h - 2, 1, question, self.scr.getmaxyx()[1] - 2, curses.A_BOLD)
-                self.draw_buttons(h - 1, [("o Oui", "yes"), ("n Non", "no")])
+                self.draw_buttons(h - 1, [("y Yes", "yes"), ("n No", "no")])
                 ch = self.scr.get_wch()
                 act = self.mouse() if ch == curses.KEY_MOUSE else None
-                if ch in ("o", "O", "y", "Y") or act == "yes":
+                if ch in ("y", "Y") or act == "yes":
                     return True
                 if ch in ("n", "N", "\x1b") or act == "no":
                     return False
@@ -224,36 +223,36 @@ class SessionTUI:
 
     # -- actions
     def act_new(self):
-        name = self.prompt("Nom de la nouvelle session (vide = auto): ")
+        name = self.prompt("New session name (empty = auto): ")
         if name is None:
             return
         args = ["new-session", "-d", "-P", "-F", "#S"] + (["-s", name] if name else [])
         ok, out = tmux(*args)
-        self.msg = f"Session '{out.strip()}' créée. Entrée pour s'y attacher." if ok else out
+        self.msg = f"Session '{out.strip()}' created. Press Enter to attach." if ok else out
         self.reload(select=out.strip() if ok else None)
 
     def act_rename(self):
         old = self.selected()
         if not old:
             return
-        new = self.prompt("Nouveau nom: ", old)
+        new = self.prompt("New name: ", old)
         if not new or new == old:
             return
         ok, out = tmux("rename-session", "-t", f"={old}", new)
-        self.msg = f"'{old}' renommée en '{new}'." if ok else out
+        self.msg = f"'{old}' renamed to '{new}'." if ok else out
         if ok and old == self.current:
             self.current = new
         self.reload(select=new if ok else None)
 
     def act_kill(self):
         name = self.selected()
-        if name and self.confirm(f"Tuer la session '{name}' ?"):
+        if name and self.confirm(f"Kill session '{name}'?"):
             ok, out = tmux("kill-session", "-t", f"={name}")
-            self.msg = f"Session '{name}' tuée." if ok else out
+            self.msg = f"Session '{name}' killed." if ok else out
             self.reload()
 
     def loop(self):
-        """Boucle principale. Retourne le nom de la session à attacher, ou None."""
+        """Main loop. Return the session name to attach to, or None."""
         while True:
             self.draw()
             act = self.read_action()
@@ -280,7 +279,7 @@ class SessionTUI:
 
 
 def run_tui():
-    os.environ.setdefault("ESCDELAY", "25")  # Échap réactif
+    os.environ.setdefault("ESCDELAY", "25")  # responsive Esc key
     target = curses.wrapper(lambda scr: SessionTUI(scr).loop())
     if not target:
         return
@@ -292,56 +291,56 @@ def run_tui():
 
 # ---------------------------------------------------------------- menu tmux
 
-SECTIONS = ("Fenêtres", "Panneaux", "Session", "Réglages")
+SECTIONS = ("Windows", "Panes", "Session", "Settings")
 
 
 def menu_items():
-    """Sections du menu: {titre: [(libellé, touche, commande tmux)]}. None = séparateur."""
+    """Menu sections: {title: [(label, key, tmux command)]}."""
     me = f'"{SELF}"'
     return {
-        "": [("Sessions…", "s", f"new-window -n sessions '{me} tui'")],  # sans popup (tmux < 3.2)
-        "Fenêtres": [
-            ("Nouvelle fenêtre", "c", 'new-window -c "#{pane_current_path}"'),
-            ("Renommer fenêtre", ",", 'command-prompt -I "#W" -p "Nom:" "rename-window -- \'%%\'"'),
-            ("Fenêtre suivante", "n", "next-window"),
-            ("Fenêtre précédente", "p", "previous-window"),
-            ("Déplacer à gauche", "<", "swap-window -d -t -1"),
-            ("Déplacer à droite", ">", "swap-window -d -t +1"),
-            ("Choisir une fenêtre", "w", "choose-tree -Zw"),
-            ("Fermer la fenêtre", "X", 'confirm-before -p "Fermer la fenêtre #W ? (y/n)" kill-window'),
+        "": [("Sessions…", "s", f"new-window -n sessions '{me} tui'")],  # no popup (tmux < 3.2)
+        "Windows": [
+            ("New window", "c", 'new-window -c "#{pane_current_path}"'),
+            ("Rename window", ",", 'command-prompt -I "#W" -p "Name:" "rename-window -- \'%%\'"'),
+            ("Next window", "n", "next-window"),
+            ("Previous window", "p", "previous-window"),
+            ("Move left", "<", "swap-window -d -t -1"),
+            ("Move right", ">", "swap-window -d -t +1"),
+            ("Choose a window", "w", "choose-tree -Zw"),
+            ("Close window", "X", 'confirm-before -p "Close window #W? (y/n)" kill-window'),
         ],
-        "Panneaux": [
-            ("Diviser gauche | droite", "|", 'split-window -h -c "#{pane_current_path}"'),
-            ("Diviser haut / bas", "-", 'split-window -v -c "#{pane_current_path}"'),
+        "Panes": [
+            ("Split left | right", "|", 'split-window -h -c "#{pane_current_path}"'),
+            ("Split top / bottom", "-", 'split-window -v -c "#{pane_current_path}"'),
             ("Zoom #{?window_zoomed_flag,[on],[off]}", "z", "resize-pane -Z"),
-            ("Échanger avec le suivant", "o", "swap-pane -D"),
-            ("Panneau vers nouvelle fenêtre", "!", "break-pane"),
-            ("Fermer le panneau", "x", 'confirm-before -p "Fermer le panneau ? (y/n)" kill-pane'),
+            ("Swap with next", "o", "swap-pane -D"),
+            ("Pane to new window", "!", "break-pane"),
+            ("Close pane", "x", 'confirm-before -p "Close pane? (y/n)" kill-pane'),
         ],
         "Session": [
-            ("Renommer la session", "$", 'command-prompt -I "#S" -p "Nom:" "rename-session -- \'%%\'"'),
-            ("Nouvelle session", "N", f'command-prompt -p "Nom:" "run-shell -b \'{me} \\"%%\\"\'"'),
-            ("Changer de session", "S", "choose-tree -Zs"),
-            ("Détacher", "d", "detach-client"),
+            ("Rename session", "$", 'command-prompt -I "#S" -p "Name:" "rename-session -- \'%%\'"'),
+            ("New session", "N", f'command-prompt -p "Name:" "run-shell -b \'{me} \\"%%\\"\'"'),
+            ("Switch session", "S", "choose-tree -Zs"),
+            ("Detach", "d", "detach-client"),
         ],
-        "Réglages": [
-            ("Souris #{?mouse,[on],[off]}", "m", "set -g mouse"),
-            ("Synchro panneaux #{?synchronize-panes,[on],[off]}", "y", "set -w synchronize-panes"),
-            ("Recharger ~/.tmux.conf", "r", f'source-file "{CONF}" ; display "Config rechargée"'),
+        "Settings": [
+            ("Mouse #{?mouse,[on],[off]}", "m", "set -g mouse"),
+            ("Sync panes #{?synchronize-panes,[on],[off]}", "y", "set -w synchronize-panes"),
+            ("Reload ~/.tmux.conf", "r", f'source-file "{CONF}" ; display "Config reloaded"'),
         ],
     }
 
 
-# Menu gmux dans un panneau latéral temporaire. Les menus natifs de tmux ne
-# conviennent pas: en 3.1 tout mouvement de souris y compte comme un relâchement
-# (fermeture ou choix involontaire), et avant 3.5 ils n'ont pas de souris au clavier.
+# gmux menu in a temporary side pane. Native tmux menus do not fit: in 3.1 any
+# mouse motion counts as a button release (closing it or picking an item by
+# accident), and before 3.5 they have no mouse support when opened by keyboard.
 
 MENU_WIDTH = 40
-MOUSE_ALL = "\033[?1003h"  # le terminal signale aussi les mouvements (survol)
+MOUSE_ALL = "\033[?1003h"  # terminal also reports motion (hover)
 
 
 def picker_rows():
-    """Lignes du menu: ("item", libellé, touche, cmd) / ("title", texte)."""
+    """Menu rows: ("item", label, key, cmd) / ("title", text)."""
     sections = menu_items()
     rows = [("item", *it) for it in sections[""]]
     for name in SECTIONS:
@@ -356,10 +355,10 @@ class Picker:
         self.sel = self.top = 0
         curses.curs_set(0)
         curses.use_default_colors()
-        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)  # élément survolé
-        curses.init_pair(2, curses.COLOR_YELLOW, -1)                # titres de section
+        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)  # hovered item
+        curses.init_pair(2, curses.COLOR_YELLOW, -1)                # section titles
         curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
-        curses.mouseinterval(0)  # appui et relâchement séparés, sans délai
+        curses.mouseinterval(0)  # separate press and release, no delay
         print(MOUSE_ALL, end="", flush=True)
         scr.keypad(True)
 
@@ -375,14 +374,14 @@ class Picker:
             self.top = cur - view + 1
         s.addnstr(0, 0, f" gmux v{VERSION} ".center(w), w - 1, curses.A_REVERSE | curses.A_BOLD)
         for y, r in enumerate(self.rows[self.top:self.top + view], start=1):
-            if r[0] == "title":  # titre: ligne de séparation, non cliquable
+            if r[0] == "title":  # title: separator line, not clickable
                 s.addnstr(y, 0, f"── {r[1].upper()} ".ljust(w, "─"), w - 1,
                           curses.color_pair(2) | curses.A_DIM)
             else:
                 text = f"   {r[1]}".ljust(w - 6) + f"({r[2]})".rjust(5)
                 attr = curses.color_pair(1) if self.top + y - 1 == cur else 0
                 s.addnstr(y, 0, text.ljust(w - 1), w - 1, attr)
-        s.addnstr(h - 1, 1, "clic/Entrée: OK  Échap: fermer", w - 2, curses.A_DIM)
+        s.addnstr(h - 1, 1, "click/Enter: OK  Esc: close", w - 2, curses.A_DIM)
         s.refresh()
 
     def item_at(self, y):
@@ -390,7 +389,7 @@ class Picker:
         return self.items.index(idx) if 0 < y < self.scr.getmaxyx()[0] - 1 and idx in self.items else None
 
     def loop(self):
-        """Retourne la commande tmux choisie, ou None."""
+        """Return the chosen tmux command, or None."""
         keys = {self.rows[i][2]: i for i in self.items}
         while True:
             self.draw()
@@ -407,7 +406,7 @@ class Picker:
                 else:
                     pos = self.item_at(y)
                     if pos is not None:
-                        self.sel = pos  # survol ou clic: surbrillance
+                        self.sel = pos  # hover or click: highlight
                         if b & (curses.BUTTON1_RELEASED | curses.BUTTON1_CLICKED):
                             return self.rows[self.items[pos]][3]
                     continue
@@ -422,8 +421,8 @@ class Picker:
 
 
 def expanded_rows(orig):
-    """Lignes du menu avec libellés et commandes évalués (#W, #S, états on/off)
-    pour le panneau `orig`, avant que le menu ne change le nom de la fenêtre."""
+    """Menu rows with labels and commands expanded (#W, #S, on/off states) for
+    pane `orig`, before the menu pane changes the window name."""
     rows = picker_rows()
     texts = [t.replace("%", "%%") for r in rows if r[0] == "item" for t in (r[1], r[3])]
     ok, out = tmux("display-message", "-p", "-t", orig, " @@ ".join(texts))  # %% -> %
@@ -434,8 +433,8 @@ def expanded_rows(orig):
 
 
 def run_pick(orig, rows_path):
-    """Tourne dans le panneau du menu. Après le choix, le panneau se ferme et la
-    commande s'exécute sur le panneau d'origine `orig`."""
+    """Runs inside the menu pane. Once an item is chosen the pane closes and the
+    command runs on the original pane `orig`."""
     os.environ.setdefault("ESCDELAY", "25")
     with open(rows_path) as f:
         rows = [tuple(r) for r in json.load(f)]
@@ -446,8 +445,8 @@ def run_pick(orig, rows_path):
         print("\033[?1003l", end="", flush=True)
     if not cmd:
         return
-    # Lancé en arrière-plan une fois ce panneau fermé, sinon la commande pourrait
-    # viser le panneau du menu (échange, fermeture, zoom...).
+    # Run in the background once this pane is closed, otherwise the command
+    # could target the menu pane (swap, close, zoom...).
     script = f"select-window -t {orig}\nselect-pane -t {orig}\n{cmd}\n"
     env = {k: v for k, v in os.environ.items() if k != "TMUX_PANE"}
     subprocess.Popen(["sh", "-c", 'sleep 0.2; printf "%s" "$1" | tmux source-file -', "sh", script],
@@ -456,14 +455,14 @@ def run_pick(orig, rows_path):
 
 
 def run_menu(orig=None):
-    """Ouvre le menu à gauche du panneau `orig` (ou dans une fenêtre si trop étroit).
-    Si un menu est déjà ouvert, le referme à la place (bascule)."""
+    """Open the menu left of pane `orig` (or in a window if too narrow).
+    If a menu is already open, close it instead (toggle)."""
     orig = orig or os.environ.get("TMUX_PANE", "")
     ok, panes = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_start_command}")
-    marker = f'"{SELF}" pick '  # commande du panneau menu (tmux >= 3.2 échappe les ")
+    marker = f'"{SELF}" pick '  # menu pane command (tmux >= 3.2 escapes ")
     open_menus = [p.split()[0] for p in panes.splitlines()
                   if marker in p.replace('\\"', '"')] if ok else []
-    if open_menus:  # un menu est déjà ouvert: un nouveau clic le referme
+    if open_menus:  # a menu is already open: a new click closes it
         for pane in open_menus:
             tmux("kill-pane", "-t", pane)
         return
@@ -482,117 +481,6 @@ def run_menu(orig=None):
         print(f"gmux: {err}", file=sys.stderr)
 
 
-# ---------------------------------------------------------------- status perf
-
-STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or os.path.expanduser("~/.cache"),
-                     "gmux-status.json")
-SKIP_NET = ("lo", "veth", "docker", "br-")
-SKIP_DISK = ("loop", "ram", "zram", "dm-", "md", "sr")
-
-
-def counters_psutil():
-    import psutil
-    c = psutil.cpu_times()
-    idle = c.idle + getattr(c, "iowait", 0)
-    total = sum(c) - getattr(c, "guest", 0) - getattr(c, "guest_nice", 0)
-    m = psutil.virtual_memory()
-    io = psutil.disk_io_counters()
-    n = psutil.net_io_counters()
-    return {"cpu": [total - idle, total], "mem": [m.total - m.available, m.total],
-            "io": [io.read_bytes, io.write_bytes] if io else [0, 0],
-            "net": [n.bytes_recv, n.bytes_sent]}
-
-
-def counters_proc():
-    with open("/proc/stat") as f:
-        v = [int(x) for x in f.readline().split()[1:9]]
-    idle, total = v[3] + v[4], sum(v)
-    mem = {}
-    with open("/proc/meminfo") as f:
-        for line in f:
-            k, val = line.split(":")
-            mem[k] = int(val.split()[0]) * 1024
-    disks = {d for d in os.listdir("/sys/block") if not d.startswith(SKIP_DISK)}
-    rd = wr = 0
-    with open("/proc/diskstats") as f:
-        for line in f:
-            p = line.split()
-            if p[2] in disks:
-                rd, wr = rd + int(p[5]) * 512, wr + int(p[9]) * 512
-    rx = tx = 0
-    with open("/proc/net/dev") as f:
-        for line in f.readlines()[2:]:
-            iface, data = line.split(":", 1)
-            if not iface.strip().startswith(SKIP_NET):
-                d = data.split()
-                rx, tx = rx + int(d[0]), tx + int(d[8])
-    return {"cpu": [total - idle, total],
-            "mem": [mem["MemTotal"] - mem.get("MemAvailable", mem["MemFree"]), mem["MemTotal"]],
-            "io": [rd, wr], "net": [rx, tx]}
-
-
-def read_counters():
-    try:
-        return counters_psutil()
-    except ImportError:
-        return counters_proc() if os.path.exists("/proc/stat") else None
-
-
-def human(n):
-    for unit in "BKMGT":
-        if n < 1024:
-            return f"{n:.0f}{unit}" if unit == "B" else f"{n:.1f}{unit}"
-        n /= 1024
-    return f"{n:.1f}P"
-
-
-def colored(pct, text):
-    color = "green" if pct < 60 else "yellow" if pct < 85 else "red"
-    return f"#[fg={color}]{text}#[default]"
-
-
-def run_status():
-    disk = shutil.disk_usage("/")
-    disk_pct = 100 * disk.used / disk.total
-    disk_txt = colored(disk_pct, f"/ {disk_pct:.0f}%")
-    cur = read_counters()
-    if cur is None:
-        print(f"{disk_txt} (pip install psutil pour plus)")
-        return
-
-    now = time.time()
-    try:
-        with open(STATE) as f:
-            prev = json.load(f)
-    except (OSError, ValueError):
-        prev = None
-    try:
-        os.makedirs(os.path.dirname(STATE), exist_ok=True)
-        with open(STATE, "w") as f:
-            json.dump({"t": now, **cur}, f)
-    except OSError:
-        pass
-
-    dt = now - prev["t"] if prev else 0
-    if dt <= 0:
-        cpu, io, net = 0.0, [0, 0], [0, 0]
-    else:
-        busy, total = (c - p for c, p in zip(cur["cpu"], prev["cpu"]))
-        cpu = 100 * busy / total if total > 0 else 0.0
-        io = [max(0, c - p) / dt for c, p in zip(cur["io"], prev["io"])]
-        net = [max(0, c - p) / dt for c, p in zip(cur["net"], prev["net"])]
-
-    used, total = cur["mem"]
-    mem_pct = 100 * used / total
-    print(" ".join([
-        colored(cpu, f"CPU {cpu:.0f}%"),
-        colored(mem_pct, f"RAM {human(used)}/{human(total)}"),
-        f"IO r{human(io[0])} w{human(io[1])}",
-        f"NET ↓{human(net[0])} ↑{human(net[1])}",
-        disk_txt,
-    ]))
-
-
 # ---------------------------------------------------------------- install
 
 BEGIN, END = "# >>> gmux >>>", "# <<< gmux <<<"
@@ -602,19 +490,19 @@ MENU_BIND = f"run-shell -b '\"{SELF}\" menu \"#{{pane_id}}\"'"
 
 
 def gmux_conf():
-    """Config tmux générée: barre de statut et accès au menu (clavier + souris)."""
+    """Generated tmux config: mouse and menu access (keyboard + mouse)."""
     return "\n".join([
-        f"# Généré par gmux v{VERSION}. Ne pas modifier: relancer 'gmux install'.",
+        f"# Generated by gmux v{VERSION}. Do not edit: run 'gmux install' again.",
         "set -g mouse on",
-        "set -g status-interval 2",
-        "set -g status-left-length 120",
-        f"set -g status-left '#[bold][#S]#[nobold] #(\"{SELF}\" status) '",
+        # clean up the status bar set by gmux < 1.6 (monitoring removed)
+        "if-shell -F '#{m:*gmux*status*,#{status-left}}' "
+        "'set -gu status-left ; set -gu status-left-length ; set -gu status-interval'",
         f"bind m {MENU_BIND}",
-        # clic gauche sur le nom de session, clic droit n'importe où sur la barre
+        # left click on the session name, right click anywhere on the status bar
         *(f"bind -n {ev} {MENU_BIND}"
           for ev in ("MouseUp1StatusLeft", "MouseUp3StatusLeft", "MouseUp3Status",
                      "MouseUp3StatusRight")),
-        # retire les menus natifs ouverts à l'appui, y compris ceux d'anciennes versions
+        # remove native menus opened on press, including those of older versions
         *(f"unbind -n {ev}" for ev in ("MouseDown1StatusLeft", "MouseDown3StatusLeft",
                                         "MouseDown3Status", "MouseDown3StatusRight")),
         ""])
@@ -645,15 +533,15 @@ def run_install(remove=False):
     with open(CONF, "w") as f:
         f.write(text)
     if remove:
-        print(f"Config gmux retirée. Redémarre tmux pour annuler les réglages actifs.")
+        print("gmux config removed. Restart tmux to undo the active settings.")
         return
     reloaded, _ = tmux("source-file", CONF)
-    print(f"Config gmux installée ({GMUX_CONF})" + (" et rechargée." if reloaded else "."))
-    print("Menu: clic sur le nom de session, clic droit sur la barre, ou prefix + m.")
+    print(f"gmux config installed ({GMUX_CONF})" + (" and reloaded." if reloaded else "."))
+    print("Menu: click the session name, right click the status bar, or prefix + m.")
 
 
 def run_open(name):
-    """S'attache à la session NAME, la crée d'abord si elle n'existe pas."""
+    """Attach to session NAME, creating it first if it does not exist."""
     if not tmux("has-session", "-t", f"={name}")[0]:
         ok, err = tmux("new-session", "-d", "-s", name)
         if not ok:
@@ -668,7 +556,7 @@ def run_open(name):
 
 def main():
     if not shutil.which("tmux"):
-        sys.exit("gmux: tmux n'est pas installé.")
+        sys.exit("gmux: tmux is not installed.")
     args = sys.argv[1:]
     cmd = args[0] if args else ("menu" if INSIDE else "tui")
     if cmd == "tui":
@@ -677,8 +565,6 @@ def main():
         run_menu(*args[1:2])
     elif cmd == "pick" and len(args) > 2:
         run_pick(args[1], args[2])
-    elif cmd == "status":
-        run_status()
     elif cmd in ("install", "uninstall"):
         run_install(remove=cmd == "uninstall")
     elif cmd in ("-v", "--version"):
