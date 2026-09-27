@@ -1,17 +1,16 @@
 # 🖥️ gmux
 
-> **gmux 1.5.1** · doc rév. 1 · 27 septembre 2026
+> **gmux 1.5.1** · doc rev. 1 · September 27, 2026
 
-Interface simple pour **tmux**, faite par quelqu'un qui oublie toujours comment
-s'en servir : un **gestionnaire de sessions** pour créer, rejoindre, renommer ou
-tuer une session, un **menu** pour gérer fenêtres et panneaux sans retenir un
-seul raccourci.
+A simple interface for **tmux**, made by somebody who always forgets how to use
+it: a **session manager** to create, join, rename or kill sessions, and a
+**menu** to handle windows and panes without remembering a single shortcut.
 
 <img width="1017" height="530" alt="image" src="https://github.com/user-attachments/assets/21064536-eb07-40f7-bd30-10a93ebc4b32" />
 
-Tout se pilote **à la souris comme au clavier** : survol en surbrillance, clic
-simple, molette, touches rapides. Un seul fichier Python, **aucune dépendance**
-en dehors de tmux, compatible tmux 3.1 et plus récent.
+Everything works **with the mouse as well as the keyboard**: hover highlight,
+single click, scroll wheel, hotkeys. One Python file, **no dependency** besides
+tmux, compatible with tmux 3.1 and newer.
 
 ## Tonton Jo
 ### Join the community:
@@ -21,11 +20,11 @@ en dehors de tmux, compatible tmux 3.1 et plus récent.
 [![Ko-Fi](https://badgen.net/badge/Buy%20me%20a%20Coffee/Link?icon=buymeacoffee)](https://ko-fi.com/tontonjo)
 [![Infomaniak](https://badgen.net/badge/Infomaniak/Affiliated%20link?icon=K)](https://www.infomaniak.com/goto/fr/home?utm_term=6151f412daf35)
 
-<!-- [Tutoriel vidéo et démonstration](https://youtu.be/...) -->
+<!-- [Video tutorial and demo](https://youtu.be/...) -->
 
 ## Installation
 
-Prérequis : `tmux` et `python3` (déjà présent sur Debian, Ubuntu et Raspberry Pi OS).
+Requirements: `tmux` and `python3` (already present on Debian, Ubuntu and Raspberry Pi OS).
 
 ```bash
 sudo apt install -y tmux python3
@@ -34,51 +33,48 @@ sudo chmod +x /usr/local/bin/gmux
 gmux
 ```
 
-`gmux install` ajoute une ligne dans `~/.tmux.conf` (config générée dans
-`~/.config/gmux/`) et la recharge si tmux tourne déjà. Il se lance **par
-utilisateur**.
+`gmux install` adds one line to `~/.tmux.conf` (generated config in
+`~/.config/gmux/`) and reloads it if tmux is already running. It runs **per
+user**.
 
-**Mise à jour** : relance les deux commandes `curl` et `chmod`, puis `gmux install`.
+**Update**: run the `curl` and `chmod` commands again, then `gmux install`.
 
-**Désinstallation** : `gmux uninstall` puis `sudo rm /usr/local/bin/gmux`.
+**Uninstall**: `gmux uninstall` then `sudo rm /usr/local/bin/gmux`.
 
-## Utilisation
+## Usage
 
-| Commande | Effet |
+| Command | Effect |
 |---|---|
-| `gmux` | Hors tmux : gestionnaire de sessions. Dans tmux : ouvre le menu |
-| `gmux NOM` | Rejoint la session `NOM`, la crée si elle n'existe pas |
-| `gmux tui` | Gestionnaire de sessions |
-| `gmux menu` | Ouvre le menu |
-| `gmux -v` | Affiche la version |
+| `gmux` | Outside tmux: session manager. Inside tmux: opens the menu |
+| `gmux NAME` | Joins session `NAME`, creates it if it does not exist |
+| `gmux tui` | Session manager |
+| `gmux menu` | Opens the menu |
+| `gmux -v` | Shows the version |
 
-**Gestionnaire de sessions** : flèches ou clic pour choisir, Entrée ou
-double-clic pour rejoindre, `n` nouvelle, `r` renommer, `x` tuer, `q` quitter.
-La barre de boutons du bas est cliquable.
+**Session manager**: arrows or click to select, Enter or double click to join,
+`n` new, `r` rename, `x` kill, `q` quit. The button bar at the bottom is clickable.
 
-**Menu** : s'ouvre dans un panneau à gauche, par un **clic sur le nom de
-session** en bas, un **clic droit sur la barre**, ou `Ctrl+b` puis `m`. Un
-nouveau clic le referme.
+**Menu**: opens in a pane on the left, with a **click on the session name** at
+the bottom, a **right click on the status bar**, or `Ctrl+b` then `m`. Another
+click closes it.
 
-- Fenêtres : nouvelle, renommer, suivante, précédente, déplacer, choisir, fermer
-- Panneaux : diviser, zoom, échanger, sortir en fenêtre, fermer
-- Session : renommer, nouvelle, changer, détacher
-- Réglages : souris, synchro des panneaux, recharger la config
+- Windows: new, rename, next, previous, move, choose, close
+- Panes: split, zoom, swap, move to new window, close
+- Session: rename, new, switch, detach
+- Settings: mouse, pane sync, reload config
 
-**Barre tmux** : Cliquer sur le nom de la session pour ouvrir le menu
+**tmux status bar**: click the session name to open the menu
 
 ```
 [essai] CPU 4% RAM 1.2G/3.8G IO r12K w3K NET ↓120K ↑40K / 45%
 ```
 
-CPU, RAM et disque passent du vert au jaune puis au rouge selon la charge.
+CPU, RAM and disk turn from green to yellow, then red, depending on the load.
 
-## Bon à savoir
+## Good to know
 
-- **Copier-coller** : gmux active la souris dans tmux, ce qui prend la main sur
-  la sélection du terminal. Maintiens **Shift** pendant la sélection pour
-  copier comme d'habitude, ou coupe la souris via Réglages dans le menu.
-- `Ctrl+b m` remplace le raccourci tmux "marquer le panneau".
-- Sous **macOS**, la barre n'affiche que le disque sans `pip install psutil`.
-
-
+- **Copy and paste**: gmux turns on the mouse in tmux, which takes over the
+  terminal's own selection. Hold **Shift** while selecting to copy as usual,
+  or turn the mouse off from Settings in the menu.
+- `Ctrl+b m` replaces the tmux "mark pane" shortcut.
+- On **macOS**, the status bar only shows the disk unless you `pip install psutil`.
