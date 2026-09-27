@@ -63,14 +63,6 @@ click closes it.
 - Session: rename, new, switch, detach
 - Settings: mouse, pane sync, reload config
 
-**tmux status bar**: click the session name to open the menu
-
-```
-[essai] CPU 4% RAM 1.2G/3.8G IO r12K w3K NET ↓120K ↑40K / 45%
-```
-
-CPU, RAM and disk turn from green to yellow, then red, depending on the load.
-
 ## Good to know
 
 - **Copy and paste**: gmux turns on the mouse in tmux, which takes over the
