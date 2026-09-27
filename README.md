@@ -34,9 +34,9 @@ sudo chmod +x /usr/local/bin/gmux
 gmux install
 ```
 
-`gmux install` ajoute une ligne dans ton `~/.tmux.conf` (config générée dans
+`gmux install` ajoute une ligne dans `~/.tmux.conf` (config générée dans
 `~/.config/gmux/`) et la recharge si tmux tourne déjà. Il se lance **par
-utilisateur** : si tu utilises tmux avec plusieurs comptes, lance-le sur chacun.
+utilisateur**.
 
 **Mise à jour** : relance les deux commandes `curl` et `chmod`, puis `gmux install`.
 
