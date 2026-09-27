@@ -7,7 +7,7 @@ s'en servir : un **gestionnaire de sessions** pour créer, rejoindre, renommer o
 tuer une session, un **menu** pour gérer fenêtres et panneaux sans retenir un
 seul raccourci.
 
-<img width="1013" height="527" alt="image" src="https://github.com/user-attachments/assets/dcb3ffd9-00dd-48ff-9ee6-6afd3684b1b4" />
+<img width="1017" height="530" alt="image" src="https://github.com/user-attachments/assets/21064536-eb07-40f7-bd30-10a93ebc4b32" />
 
 Tout se pilote **à la souris comme au clavier** : survol en surbrillance, clic
 simple, molette, touches rapides. Un seul fichier Python, **aucune dépendance**
