@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # gmux: simple tmux manager (mouse + keyboard)
-# Version: 1.9.1
+# Version: 1.11.0
 """
 Usage:
   gmux              outside tmux: session manager / inside tmux: menu
@@ -12,7 +12,7 @@ Usage:
   gmux uninstall    remove the gmux config
   gmux -v           show the version
 """
-VERSION = "1.9.1"
+VERSION = "1.11.0"
 
 import curses
 import json
@@ -27,6 +27,7 @@ SELF = os.path.abspath(__file__)
 INSIDE = bool(os.environ.get("TMUX"))
 CONF = os.path.expanduser("~/.tmux.conf")
 GMUX_CONF = os.path.expanduser("~/.config/gmux/gmux.tmux.conf")
+CLIP_SH = os.path.expanduser("~/.config/gmux/clip.sh")
 
 
 # ---------------------------------------------------------------- tmux helpers
@@ -361,9 +362,9 @@ def picker_rows():
 
 class Picker:
     def __init__(self, scr, rows):
-        self.scr, self.rows = scr, rows
-        self.items = [i for i, r in enumerate(rows) if r[0] == "item"]
+        self.scr = scr
         self.sel = self.top = 0
+        self.set_rows(rows)
         curses.curs_set(0)
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)  # hovered item
@@ -372,6 +373,11 @@ class Picker:
         curses.mouseinterval(0)  # separate press and release, no delay
         print(MOUSE_ALL, end="", flush=True)
         scr.keypad(True)
+
+    def set_rows(self, rows):
+        self.rows = rows
+        self.items = [i for i, r in enumerate(rows) if r[0] == "item"]
+        self.sel = min(self.sel, len(self.items) - 1)
 
     def draw(self):
         s = self.scr
@@ -392,19 +398,30 @@ class Picker:
                 text = f"   {r[1]}".ljust(w - 6) + f"({r[2]})".rjust(5)
                 attr = curses.color_pair(1) if self.top + y - 1 == cur else 0
                 s.addnstr(y, 0, text.ljust(w - 1), w - 1, attr)
-        s.addnstr(h - 1, 1, "click/Enter: OK  Esc: close", w - 2, curses.A_DIM)
+        s.addnstr(h - 1, 1, "click/Enter: run  Esc: close", w - 2, curses.A_DIM)
         s.refresh()
 
     def item_at(self, y):
         idx = self.top + y - 1
         return self.items.index(idx) if 0 < y < self.scr.getmaxyx()[0] - 1 and idx in self.items else None
 
-    def loop(self):
-        """Return the chosen tmux command, or None."""
+    def loop(self, choose, tick, accept_keys=lambda: True):
+        """Run until closed. choose(row) runs an item and returns True to keep
+        the menu open. tick() runs every second and returns fresh rows, or None
+        to close. accept_keys() tells whether keyboard input is for the menu."""
         keys = {self.rows[i][2]: i for i in self.items}
+        self.scr.timeout(1000)
         while True:
             self.draw()
-            ch = self.scr.get_wch()
+            try:
+                ch = self.scr.get_wch()
+            except curses.error:  # timeout
+                rows = tick()
+                if rows is None:
+                    return
+                self.set_rows(rows)
+                continue
+            pick = None
             if ch == curses.KEY_MOUSE:
                 try:
                     _, _, y, _, b = curses.getmouse()
@@ -419,16 +436,30 @@ class Picker:
                     if pos is not None:
                         self.sel = pos  # hover or click: highlight
                         if b & (curses.BUTTON1_RELEASED | curses.BUTTON1_CLICKED):
-                            return self.rows[self.items[pos]][3]
+                            pick = pos
+                    if pick is None:
+                        continue
+            elif not accept_keys():  # e.g. keys copied here by synchronize-panes
+                continue
+            if pick is None:
+                if ch in ("\x1b", "q"):
+                    return
+                if ch in (curses.KEY_UP, curses.KEY_DOWN):
+                    self.sel = (self.sel + (1 if ch == curses.KEY_DOWN else -1)) % len(self.items)
                     continue
-            if ch in ("\x1b", "q"):
-                return None
-            if ch in (curses.KEY_UP, curses.KEY_DOWN):
-                self.sel = (self.sel + (1 if ch == curses.KEY_DOWN else -1)) % len(self.items)
-            elif ch in ("\n", "\r", curses.KEY_ENTER):
-                return self.rows[self.items[self.sel]][3]
-            elif ch in keys:
-                return self.rows[keys[ch]][3]
+                if ch in ("\n", "\r", curses.KEY_ENTER):
+                    pick = self.sel
+                elif ch in keys:
+                    pick = self.items.index(keys[ch])
+                else:
+                    continue
+            self.sel = pick
+            if not choose(self.rows[self.items[pick]]):
+                return
+            rows = tick()
+            if rows is None:
+                return
+            self.set_rows(rows)
 
 
 def expanded_rows(orig):
@@ -443,40 +474,137 @@ def expanded_rows(orig):
     return [("item", next(values), r[2], next(values)) if r[0] == "item" else r for r in rows]
 
 
+CLOSE_KEYS = ("s", "z", "N", "S", "d")  # Sessions, Zoom, New/Switch session, Detach
+INTERACTIVE = ("command-prompt", "confirm-before", "choose-tree")  # wait for the user
+
+
+class MenuPane:
+    """The menu pane stays open: each item runs on the work pane (the active
+    one, or the last active one when the menu has focus), then the menu takes
+    the focus back and follows window changes."""
+
+    def __init__(self, orig):
+        self.me = os.environ.get("TMUX_PANE", "")
+        self.orig = orig
+        self.env = {k: v for k, v in os.environ.items() if k != "TMUX_PANE"}
+
+    def get(self, fmt, target=None):
+        ok, out = tmux("display-message", "-p", "-t", target or self.me, fmt)
+        return out.strip() if ok else ""
+
+    def window(self):
+        return self.get("#{window_id}")
+
+    def active(self):
+        return self.get("#{pane_active}") == "1"
+
+    def synced(self):
+        """synchronize-panes copies keys typed anywhere to the menu too: the
+        menu is then mouse only and leaves the focus on the work pane."""
+        return self.get("#{?synchronize-panes,1,0}") == "1"
+
+    def accept_keys(self):
+        return self.active() and not self.synced()
+
+    def target(self):
+        """Work pane for the next action, None if only the menu is left."""
+        win = self.window()
+        pane = self.get("#{pane_id}", f"{win}.{{last}}") if self.active() else self.get("#{pane_id}", win)
+        if pane and pane != self.me:
+            return pane
+        ok, out = tmux("list-panes", "-t", win, "-F", "#{pane_id}")
+        others = [p for p in out.split() if p != self.me] if ok else []
+        return others[0] if others else None
+
+    def follow(self):
+        """Move the menu into the window the session now shows."""
+        current = self.get("#{window_id}", self.get("#{session_id}") + ":")
+        if current and current != self.window():
+            tmux("join-pane", "-d", "-h", "-b", "-f", "-l", str(MENU_WIDTH), "-s", self.me, "-t", current)
+
+    def script(self, cmd, target):
+        return f"select-window -t {target}\nselect-pane -t {target}\n{cmd}\n"
+
+    def run(self, cmd, target):
+        subprocess.run(["tmux", "source-file", "-"], input=self.script(cmd, target), text=True,
+                       env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def run_after_close(self, cmd, target):
+        """Run once the menu pane is gone, so closing it cannot undo the action
+        (a zoomed window unzooms when one of its panes closes)."""
+        subprocess.Popen(["sh", "-c", 'sleep 0.2; printf "%s" "$1" | tmux source-file -', "sh",
+                          self.script(cmd, target)], env=self.env, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def choose(self, row):
+        _, _, key, cmd = row
+        target = self.target()
+        if target is None:
+            return False
+        if key in CLOSE_KEYS:
+            self.run_after_close(cmd, target)
+            return False
+        self.run(cmd, target)
+        self.follow()
+        if not cmd.startswith(INTERACTIVE) and not self.synced():
+            tmux("select-pane", "-t", self.me)  # prompts keep the focus on the work pane
+        return True
+
+    def tick(self):
+        target = self.target()
+        if target is None:
+            return None
+        self.follow()
+        return expanded_rows(target)
+
+
 def run_pick(orig, rows_path):
-    """Runs inside the menu pane. Once an item is chosen the pane closes and the
-    command runs on the original pane `orig`."""
+    """Runs inside the menu pane."""
     os.environ.setdefault("ESCDELAY", "25")
     with open(rows_path) as f:
         rows = [tuple(r) for r in json.load(f)]
     os.remove(rows_path)
+    menu = MenuPane(orig)
+    if menu.target() is None:  # narrow terminal: menu alone in its window
+        return run_pick_once(menu, rows)
     try:
-        cmd = curses.wrapper(lambda scr: Picker(scr, rows).loop())
+        curses.wrapper(lambda scr: Picker(scr, rows).loop(menu.choose, menu.tick, menu.accept_keys))
     finally:
         print("\033[?1003l", end="", flush=True)
-    if not cmd:
-        return
-    # Run in the background once this pane is closed, otherwise the command
-    # could target the menu pane (swap, close, zoom...).
-    script = f"select-window -t {orig}\nselect-pane -t {orig}\n{cmd}\n"
-    env = {k: v for k, v in os.environ.items() if k != "TMUX_PANE"}
-    subprocess.Popen(["sh", "-c", 'sleep 0.2; printf "%s" "$1" | tmux source-file -', "sh", script],
-                     env=env, start_new_session=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def run_pick_once(menu, rows):
+    """Menu in its own window: choose one item, close, then run it on `orig`."""
+    chosen = []
+
+    def choose(row):
+        chosen.append(row)
+        return False
+    try:
+        curses.wrapper(lambda scr: Picker(scr, rows).loop(choose, lambda: rows))
+    finally:
+        print("\033[?1003l", end="", flush=True)
+    if chosen:
+        menu.run_after_close(chosen[0][3], menu.orig)
 
 
 def run_menu(orig=None):
     """Open the menu left of pane `orig` (or in a window if too narrow).
-    If a menu is already open, close it instead (toggle)."""
+    If a menu is open here: close it when it has the focus, else focus it."""
     orig = orig or os.environ.get("TMUX_PANE", "")
-    ok, panes = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_start_command}")
+    ok, panes = tmux("list-panes", "-a", "-F",
+                     "#{pane_id} #{window_id} #{pane_active} #{pane_start_command}")
     marker = f'"{SELF}" pick '  # menu pane command (tmux >= 3.2 escapes ")
-    open_menus = [p.split()[0] for p in panes.splitlines()
-                  if marker in p.replace('\\"', '"')] if ok else []
-    if open_menus:  # a menu is already open: a new click closes it
-        for pane in open_menus:
-            tmux("kill-pane", "-t", pane)
-        return
+    here = tmux("display-message", "-p", "-t", orig, "#{window_id}")[1].strip()
+    for line in (panes.splitlines() if ok else []):
+        pane, win, active = line.split()[:3]
+        if marker not in line.replace('\\"', '"'):
+            continue
+        if win != here:
+            tmux("kill-pane", "-t", pane)  # menu left in another window
+        else:
+            tmux("kill-pane" if active == "1" else "select-pane", "-t", pane)
+            return
     fd, rows_path = tempfile.mkstemp(prefix="gmux-", suffix=".json")
     with os.fdopen(fd, "w") as f:
         json.dump(expanded_rows(orig), f)
@@ -485,7 +613,8 @@ def run_menu(orig=None):
     if ok and width.strip().isdigit() and int(width) >= MENU_WIDTH + 20:
         ok, err = tmux("split-window", "-h", "-b", "-f", "-l", str(MENU_WIDTH), "-t", orig, pick)
     else:
-        ok, err = tmux("new-window", "-n", "gmux", "-t", orig, pick)
+        win = tmux("display-message", "-p", "-t", orig, "#{window_id}")[1].strip()
+        ok, err = tmux("new-window", "-a", "-n", "gmux", "-t", win, pick)  # -a: next free index
     if not ok:
         os.remove(rows_path)
         notify(f"gmux: {err}")
@@ -499,53 +628,54 @@ def run_menu(orig=None):
 # one is reachable: a local desktop, or X11 forwarding (MobaXterm, ssh -X) whose
 # clipboard is synced with the PC. Then it confirms the copy.
 
-LOCAL_CLIPS = (("WAYLAND_DISPLAY", ["wl-copy"]),
-               ("DISPLAY", ["xclip", "-selection", "clipboard"]),
-               ("DISPLAY", ["xsel", "--clipboard", "--input"]),
-               ("", ["pbcopy"]))  # macOS
 OSC52_TERMS = ("xterm*", "screen*", "tmux*", "*kitty*", "alacritty*", "foot*",
                "wezterm*", "rxvt*", "st-*", "putty*")  # not "linux": its console prints OSC
 
 
-def run_clip():
-    text = sys.stdin.buffer.read()
-    copied_local = False
-    for env, cmd in LOCAL_CLIPS:
-        if (not env or os.environ.get(env)) and shutil.which(cmd[0]):
-            try:
-                subprocess.run(cmd, input=text, timeout=2,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except (OSError, subprocess.SubprocessError):
-                continue
-            copied_local = True
-            break
-    n = len(text.decode(errors="replace"))
-    msg = f"Copied {n} character{'s' if n != 1 else ''}"
-    if not copied_local and os.environ.get("DISPLAY"):
-        # X11 forwarding (MobaXterm, ssh -X): an X clipboard tool reaches the PC
-        msg += ". For your PC clipboard: apt install xclip"
-    notify(msg)
-
-
-def run_copy_later(pane, vi_once=False):
-    """Copy the pane selection a moment later: right after entering copy mode
-    or changing an option, tmux skips the clipboard (OSC 52) while it redraws.
-    vi_once: the binding switched mode-keys to vi for this copy; restore it."""
-    time.sleep(0.05)
-    tmux("send-keys", "-X", "-t", pane, "copy-pipe-and-cancel", f'"{SELF}" clip')
-    if vi_once:
-        tmux("set-option", "-wu", "-t", pane, "mode-keys")
+def clip_sh():
+    """Helper run on every copy. Plain sh: it starts in a few ms, where Python
+    takes far longer (several hundred ms on a Raspberry Pi)."""
+    return f"""#!/bin/sh
+# Generated by gmux v{VERSION}: copies stdin to the desktop clipboard when one is
+# reachable (local desktop, or X11 forwarding such as MobaXterm), then confirms.
+text=$(cat; printf x); text=${{text%x}}  # keep trailing newlines
+copied=
+if [ -n "$WAYLAND_DISPLAY" ] && command -v wl-copy >/dev/null; then
+    printf %s "$text" | wl-copy && copied=1
+elif [ -n "$DISPLAY" ] && command -v xclip >/dev/null; then
+    printf %s "$text" | timeout 2 xclip -selection clipboard >/dev/null 2>&1 && copied=1
+elif [ -n "$DISPLAY" ] && command -v xsel >/dev/null; then
+    printf %s "$text" | timeout 2 xsel --clipboard --input && copied=1
+elif command -v pbcopy >/dev/null; then
+    printf %s "$text" | pbcopy && copied=1
+fi
+n=$(printf %s "$text" | wc -m | tr -d ' ')
+msg="Copied $n character"; [ "$n" = 1 ] || msg="${{msg}}s"
+[ -z "$copied" ] && [ -n "$DISPLAY" ] && msg="$msg. For your PC clipboard: apt install xclip"
+# 4 s message; tmux < 3.2 has no -d, so raise display-time just for it
+tmux display-message -d 4000 "$msg" 2>/dev/null || {{
+    old=$(tmux show-options -gv display-time)
+    tmux set-option -g display-time 4000
+    tmux display-message "$msg"
+    tmux set-option -g display-time "${{old:-750}}"
+}}
+"""
 
 
 def clipboard_conf():
     """Mouse copy and paste: drag, double click (word) or triple click (line)
     copies; middle or right click pastes."""
-    copy = f"copy-pipe-and-cancel '\"{SELF}\" clip'"
-    later = f"run-shell -b '\"{SELF}\" copy-later #{{pane_id}}'"
+    clip = f"sh '{CLIP_SH}'"
+    copy = f'copy-pipe-and-cancel "{clip}"'
+    # Copy a moment later when tmux has just redrawn (entering copy mode, option
+    # change): it skips the clipboard (OSC 52) during a redraw.
+    later_sh = f'sleep 0.03; tmux send-keys -X -t #{{pane_id}} copy-pipe-and-cancel \\"{clip}\\"'
+    later = f'run-shell -b "{later_sh}"'
     # With mode-keys emacs (the default) tmux drops the last selected character;
     # vi keeps it, so mouse selections are copied as vi does, then restored.
     drag_copy = (f"if -F '#{{==:#{{mode-keys}},emacs}}' "
-                 f"{{ set -w mode-keys vi ; run-shell -b '\"{SELF}\" copy-later #{{pane_id}} vi' }} "
+                 f'{{ set -w mode-keys vi ; run-shell -b "{later_sh} ; '
+                 f'tmux set-option -wu -t #{{pane_id}} mode-keys" }} '
                  f"{{ send -X {copy} }}")
     paste_or_app = ("if -Ft= '#{||:#{mouse_any_flag},#{pane_in_mode}}' "
                     "{ select-pane -t= ; send -M } { select-pane -t= ; paste-buffer -p }")
@@ -614,12 +744,14 @@ def strip_block(text):
 def run_install(remove=False, quiet=False):
     text = strip_block(open(CONF).read() if os.path.exists(CONF) else "")
     if remove:
-        if os.path.exists(GMUX_CONF):
-            os.remove(GMUX_CONF)
+        for path in (GMUX_CONF, CLIP_SH):
+            if os.path.exists(path):
+                os.remove(path)
     else:
         os.makedirs(os.path.dirname(GMUX_CONF), exist_ok=True)
-        with open(GMUX_CONF, "w") as f:
-            f.write(gmux_conf())
+        for path, content in ((GMUX_CONF, gmux_conf()), (CLIP_SH, clip_sh())):
+            with open(path, "w") as f:
+                f.write(content)
         text = (text + "\n" if text else "") + conf_block()
     with open(CONF, "w") as f:
         f.write(text)
@@ -638,7 +770,8 @@ def ensure_installed():
     updated or moved (the generated config then differs)."""
     def read(path):
         return open(path).read() if os.path.exists(path) else ""
-    if conf_block() in read(CONF) and read(GMUX_CONF) == gmux_conf():
+    if (conf_block() in read(CONF) and read(GMUX_CONF) == gmux_conf()
+            and read(CLIP_SH) == clip_sh()):
         return
     run_install(quiet=True)
     if INSIDE:
@@ -672,10 +805,13 @@ def main():
         run_menu(*args[1:2])
     elif cmd == "pick" and len(args) > 2:
         run_pick(args[1], args[2])
-    elif cmd == "clip":
-        run_clip()
-    elif cmd == "copy-later" and len(args) > 1:
-        run_copy_later(args[1], vi_once=args[2:3] == ["vi"])
+    elif cmd in ("clip", "copy-later"):  # called by bindings of gmux < 1.11
+        ensure_installed()  # regenerates the helper and reloads the new bindings
+        if cmd == "clip":
+            os.execvp("sh", ["sh", CLIP_SH])
+        tmux("send-keys", "-X", "-t", args[1], "copy-pipe-and-cancel", f"sh '{CLIP_SH}'")
+        if args[2:3] == ["vi"]:  # the old binding switched mode-keys for this copy
+            tmux("set-option", "-wu", "-t", args[1], "mode-keys")
     elif cmd in ("install", "uninstall"):
         run_install(remove=cmd == "uninstall")
     elif cmd in ("-v", "--version"):
