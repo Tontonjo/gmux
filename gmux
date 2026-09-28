@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # gmux: simple tmux manager (mouse + keyboard)
-# Version: 1.8.2
+# Version: 1.9.1
 """
 Usage:
   gmux              outside tmux: session manager / inside tmux: menu
@@ -12,7 +12,7 @@ Usage:
   gmux uninstall    remove the gmux config
   gmux -v           show the version
 """
-VERSION = "1.8.2"
+VERSION = "1.9.1"
 
 import curses
 import json
@@ -527,11 +527,14 @@ def run_clip():
     notify(msg)
 
 
-def run_copy_later(pane):
-    """Copy the pane selection a moment later: right after entering copy mode,
-    tmux skips the clipboard (OSC 52) while it redraws the window."""
+def run_copy_later(pane, vi_once=False):
+    """Copy the pane selection a moment later: right after entering copy mode
+    or changing an option, tmux skips the clipboard (OSC 52) while it redraws.
+    vi_once: the binding switched mode-keys to vi for this copy; restore it."""
     time.sleep(0.05)
     tmux("send-keys", "-X", "-t", pane, "copy-pipe-and-cancel", f'"{SELF}" clip')
+    if vi_once:
+        tmux("set-option", "-wu", "-t", pane, "mode-keys")
 
 
 def clipboard_conf():
@@ -539,6 +542,11 @@ def clipboard_conf():
     copies; middle or right click pastes."""
     copy = f"copy-pipe-and-cancel '\"{SELF}\" clip'"
     later = f"run-shell -b '\"{SELF}\" copy-later #{{pane_id}}'"
+    # With mode-keys emacs (the default) tmux drops the last selected character;
+    # vi keeps it, so mouse selections are copied as vi does, then restored.
+    drag_copy = (f"if -F '#{{==:#{{mode-keys}},emacs}}' "
+                 f"{{ set -w mode-keys vi ; run-shell -b '\"{SELF}\" copy-later #{{pane_id}} vi' }} "
+                 f"{{ send -X {copy} }}")
     paste_or_app = ("if -Ft= '#{||:#{mouse_any_flag},#{pane_in_mode}}' "
                     "{ select-pane -t= ; send -M } { select-pane -t= ; paste-buffer -p }")
 
@@ -550,7 +558,7 @@ def clipboard_conf():
     lines += [f"set -s terminal-overrides[{90 + i}] '{t}:Ms=\\E]52;%p1%s;%p2%s\\007'"
               for i, t in enumerate(OSC52_TERMS)]
     for table in ("copy-mode", "copy-mode-vi"):
-        lines += [f"bind -T {table} MouseDragEnd1Pane send -X {copy}",
+        lines += [f"bind -T {table} MouseDragEnd1Pane {drag_copy}",
                   f"bind -T {table} DoubleClick1Pane {{ select-pane ; send -X select-word ; {later} }}",
                   f"bind -T {table} TripleClick1Pane {{ select-pane ; send -X select-line ; {later} }}"]
     lines += [f"bind -n DoubleClick1Pane {select('select-word')}",
@@ -576,6 +584,9 @@ def gmux_conf():
         # clean up the status bar set by gmux < 1.6 (monitoring removed)
         "if-shell -F '#{m:*gmux*status*,#{status-left}}' "
         "'set -gu status-left ; set -gu status-left-length ; set -gu status-interval'",
+        # MobaXterm / PuTTY (TERM=xterm) turn the mouse wheel into arrow keys on the
+        # alternate screen: keep tmux off it for them so the wheel scrolls tmux
+        "set -s terminal-overrides[89] 'xterm:smcup@:rmcup@'",
         *clipboard_conf(),
         f"bind m {MENU_BIND}",
         # left click on the session name, right click anywhere on the status bar
@@ -664,7 +675,7 @@ def main():
     elif cmd == "clip":
         run_clip()
     elif cmd == "copy-later" and len(args) > 1:
-        run_copy_later(args[1])
+        run_copy_later(args[1], vi_once=args[2:3] == ["vi"])
     elif cmd in ("install", "uninstall"):
         run_install(remove=cmd == "uninstall")
     elif cmd in ("-v", "--version"):
