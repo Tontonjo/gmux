@@ -9,8 +9,8 @@ it: a **session manager** to create, join, rename or kill sessions, and a
 <img width="1017" height="530" alt="image" src="https://github.com/user-attachments/assets/21064536-eb07-40f7-bd30-10a93ebc4b32" />
 
 Everything works **with the mouse as well as the keyboard**: hover highlight,
-single click, scroll wheel, hotkeys. One Python file, **no dependency** besides
-tmux, compatible with tmux 3.1 and newer.
+single click, scroll wheel, hotkeys.
+Copy and paste using mouse only: selected text is directly added to your clipboard
 
 ## Tonton Jo
 ### Join the community:
