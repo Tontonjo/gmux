@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # gmux: simple tmux manager (mouse + keyboard)
-# Version: 1.7.1
+# Version: 1.8.2
 """
 Usage:
   gmux              outside tmux: session manager / inside tmux: menu
@@ -12,7 +12,7 @@ Usage:
   gmux uninstall    remove the gmux config
   gmux -v           show the version
 """
-VERSION = "1.7.1"
+VERSION = "1.8.2"
 
 import curses
 import json
@@ -35,6 +35,17 @@ def tmux(*args):
     """Run a tmux command. Return (ok, output or error message)."""
     r = subprocess.run(["tmux", *args], capture_output=True, text=True)
     return r.returncode == 0, (r.stdout if r.returncode == 0 else r.stderr.strip())
+
+
+def notify(msg, ms=4000):
+    """Show a message in the tmux status bar for `ms` milliseconds."""
+    if tmux("display-message", "-d", str(ms), msg)[0]:
+        return
+    # tmux < 3.2 has no -d: raise display-time just for this message
+    ok, old = tmux("show-options", "-gv", "display-time")
+    tmux("set-option", "-g", "display-time", str(ms))
+    tmux("display-message", msg)
+    tmux("set-option", "-g", "display-time", old.strip() if ok and old.strip() else "750")
 
 
 def list_sessions():
@@ -477,8 +488,76 @@ def run_menu(orig=None):
         ok, err = tmux("new-window", "-n", "gmux", "-t", orig, pick)
     if not ok:
         os.remove(rows_path)
-        tmux("display-message", f"gmux: {err}")
+        notify(f"gmux: {err}")
         print(f"gmux: {err}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------- clipboard
+# Mouse selection is copied by tmux to its buffer and, through OSC 52, to the
+# clipboard of the computer running the terminal (Windows Terminal, iTerm2,
+# kitty, WezTerm, xterm...). `gmux clip` also fills the X/Wayland clipboard when
+# one is reachable: a local desktop, or X11 forwarding (MobaXterm, ssh -X) whose
+# clipboard is synced with the PC. Then it confirms the copy.
+
+LOCAL_CLIPS = (("WAYLAND_DISPLAY", ["wl-copy"]),
+               ("DISPLAY", ["xclip", "-selection", "clipboard"]),
+               ("DISPLAY", ["xsel", "--clipboard", "--input"]),
+               ("", ["pbcopy"]))  # macOS
+OSC52_TERMS = ("xterm*", "screen*", "tmux*", "*kitty*", "alacritty*", "foot*",
+               "wezterm*", "rxvt*", "st-*", "putty*")  # not "linux": its console prints OSC
+
+
+def run_clip():
+    text = sys.stdin.buffer.read()
+    copied_local = False
+    for env, cmd in LOCAL_CLIPS:
+        if (not env or os.environ.get(env)) and shutil.which(cmd[0]):
+            try:
+                subprocess.run(cmd, input=text, timeout=2,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            copied_local = True
+            break
+    n = len(text.decode(errors="replace"))
+    msg = f"Copied {n} character{'s' if n != 1 else ''}"
+    if not copied_local and os.environ.get("DISPLAY"):
+        # X11 forwarding (MobaXterm, ssh -X): an X clipboard tool reaches the PC
+        msg += ". For your PC clipboard: apt install xclip"
+    notify(msg)
+
+
+def run_copy_later(pane):
+    """Copy the pane selection a moment later: right after entering copy mode,
+    tmux skips the clipboard (OSC 52) while it redraws the window."""
+    time.sleep(0.05)
+    tmux("send-keys", "-X", "-t", pane, "copy-pipe-and-cancel", f'"{SELF}" clip')
+
+
+def clipboard_conf():
+    """Mouse copy and paste: drag, double click (word) or triple click (line)
+    copies; middle or right click pastes."""
+    copy = f"copy-pipe-and-cancel '\"{SELF}\" clip'"
+    later = f"run-shell -b '\"{SELF}\" copy-later #{{pane_id}}'"
+    paste_or_app = ("if -Ft= '#{||:#{mouse_any_flag},#{pane_in_mode}}' "
+                    "{ select-pane -t= ; send -M } { select-pane -t= ; paste-buffer -p }")
+
+    def select(action):  # from normal mode: enter copy mode, select, copy
+        return (f"if -Ft= '#{{mouse_any_flag}}' {{ select-pane -t= ; send -M }} "
+                f"{{ select-pane -t= ; copy-mode -t= ; send -X -t= {action} ; {later} }}")
+
+    lines = ["set -s set-clipboard on"]
+    lines += [f"set -s terminal-overrides[{90 + i}] '{t}:Ms=\\E]52;%p1%s;%p2%s\\007'"
+              for i, t in enumerate(OSC52_TERMS)]
+    for table in ("copy-mode", "copy-mode-vi"):
+        lines += [f"bind -T {table} MouseDragEnd1Pane send -X {copy}",
+                  f"bind -T {table} DoubleClick1Pane {{ select-pane ; send -X select-word ; {later} }}",
+                  f"bind -T {table} TripleClick1Pane {{ select-pane ; send -X select-line ; {later} }}"]
+    lines += [f"bind -n DoubleClick1Pane {select('select-word')}",
+              f"bind -n TripleClick1Pane {select('select-line')}",
+              f"bind -n MouseDown2Pane {paste_or_app}",
+              f"bind -n MouseDown3Pane {paste_or_app}"]  # replaces the native pane menu
+    return lines
 
 
 # ---------------------------------------------------------------- install
@@ -497,6 +576,7 @@ def gmux_conf():
         # clean up the status bar set by gmux < 1.6 (monitoring removed)
         "if-shell -F '#{m:*gmux*status*,#{status-left}}' "
         "'set -gu status-left ; set -gu status-left-length ; set -gu status-interval'",
+        *clipboard_conf(),
         f"bind m {MENU_BIND}",
         # left click on the session name, right click anywhere on the status bar
         *(f"bind -n {ev} {MENU_BIND}"
@@ -551,7 +631,7 @@ def ensure_installed():
         return
     run_install(quiet=True)
     if INSIDE:
-        tmux("display-message", f"gmux v{VERSION}: tmux config set up for this user")
+        notify(f"gmux v{VERSION}: tmux config set up for this user")
 
 
 def run_open(name):
@@ -573,7 +653,7 @@ def main():
         sys.exit("gmux: tmux is not installed.")
     args = sys.argv[1:]
     cmd = args[0] if args else ("menu" if INSIDE else "tui")
-    if cmd not in ("pick", "install", "uninstall") and not cmd.startswith("-"):
+    if cmd not in ("pick", "clip", "copy-later", "install", "uninstall") and not cmd.startswith("-"):
         ensure_installed()  # first run for this user, or gmux was updated
     if cmd == "tui":
         run_tui()
@@ -581,6 +661,10 @@ def main():
         run_menu(*args[1:2])
     elif cmd == "pick" and len(args) > 2:
         run_pick(args[1], args[2])
+    elif cmd == "clip":
+        run_clip()
+    elif cmd == "copy-later" and len(args) > 1:
+        run_copy_later(args[1])
     elif cmd in ("install", "uninstall"):
         run_install(remove=cmd == "uninstall")
     elif cmd in ("-v", "--version"):
