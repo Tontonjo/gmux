@@ -6,11 +6,12 @@ A simple interface for **tmux**, made by somebody who always forgets how to use
 it: a **session manager** to create, join, rename or kill sessions, and a
 **menu** to handle windows and panes without remembering a single shortcut.
 
-<img width="1017" height="530" alt="image" src="https://github.com/user-attachments/assets/21064536-eb07-40f7-bd30-10a93ebc4b32" />
-
 Everything works **with the mouse as well as the keyboard**: hover highlight,
 single click, scroll wheel, hotkeys.  
 Copy and paste using mouse only: selected text is directly added to your clipboard
+
+<img width="1017" height="530" alt="image" src="https://github.com/user-attachments/assets/21064536-eb07-40f7-bd30-10a93ebc4b32" />
+
 
 ## Tonton Jo
 ### Join the community:
