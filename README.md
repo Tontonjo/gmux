@@ -3,7 +3,8 @@
 > **gmux 1.15.0** · doc rev. 1 · September 27, 2026
 
 A simple interface for **tmux**, made by somebody who always forgets how to use
-it: a **session manager** to create, join, rename or kill sessions, and a
+it.  
+A **session manager** to create, join, rename or kill sessions, and a
 **menu** to handle windows and panes without remembering a single shortcut.
 
 Everything works **with the mouse as well as the keyboard**: hover highlight,
