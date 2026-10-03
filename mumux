@@ -12,7 +12,7 @@ Usage:
   mumux uninstall    remove the mumux config
   mumux -v           show the version
 """
-VERSION = "1.16.0"
+VERSION = "1.17.0"
 
 import curses
 import json
@@ -51,7 +51,7 @@ def notify(msg, ms=4000):
 
 
 def list_sessions():
-    fmt = "#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created}"
+    fmt = f"#{{session_name}}\t{WINDOW_COUNT}\t#{{session_attached}}\t#{{session_created}}"
     ok, out = tmux("list-sessions", "-F", fmt)
     if not ok:
         return []  # no server = no session
@@ -738,13 +738,17 @@ def tmux_version():
 # tmux formats shared by the status bar and the pane bars
 IS_MENU = "#{m:* pick *,#{pane_start_command}}"  # the mumux menu pane runs `mumux pick`
 PANE_LABEL = f"#{{?{IS_MENU},mumux menu,#P: #{{pane_current_command}}  #{{b:pane_current_path}}}}"
-IS_SPLIT = f"#{{m:xx*,#{{P:#{{?{IS_MENU},,x}}}}}}"  # one x per real pane: 2+ = split
+REAL_PANES = f"#{{P:#{{?{IS_MENU},,x}}}}"  # one x per pane, the mumux menu aside
+IS_SPLIT = f"#{{m:xx*,{REAL_PANES}}}"  # 2+ real panes
+REAL_WINDOWS = f"#{{W:#{{?{REAL_PANES},x,}}}}"  # one x per window, a menu-only window aside
+WINDOW_COUNT = f"#{{n:{REAL_WINDOWS}}}"
 
 
 def windows_conf():
     """Make windows easy to tell apart: the current one is highlighted in the
     status bar, and switching windows shows its number and name for a moment
-    (only when the session has more than one window)."""
+    (only when the session has more than one window). A window holding only
+    the mumux menu is neither counted nor announced."""
     duration = "-d 2000 " if tmux_version() >= 3.2 else ""  # -d needs tmux 3.2
     return [
         "set -g window-status-separator ''",
@@ -754,8 +758,8 @@ def windows_conf():
         "set -g window-status-current-style 'fg=black,bg=yellow,bold'",
         # index 90: keeps any session-window-changed hook the user set at index 0
         "set-hook -g session-window-changed[90] "
-        "{ if -F '#{!=:#{session_windows},1}' "
-        f"{{ display-message {duration}'Window #I: #W  (#{{session_windows}} windows)' }} }}",
+        f"{{ if -F '#{{&&:#{{m:xx*,{REAL_WINDOWS}}},{REAL_PANES}}}' "
+        f"{{ display-message {duration}'Window #I: #W  ({WINDOW_COUNT} windows)' }} }}",
     ]
 
 
