@@ -1,4 +1,4 @@
-# 🖥️ gmux
+<img width="1024" height="336" alt="gmux-logo-dark" src="https://github.com/user-attachments/assets/dd93b9e6-46e3-44c4-b29b-af7dba657666" />
 
 > **gmux 1.15.0** · doc rev. 1 · September 27, 2026
 
