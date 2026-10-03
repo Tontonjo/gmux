@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # gmux: simple tmux manager (mouse + keyboard)
-# Version: 1.11.0
+# Version: 1.15.0
 """
 Usage:
   gmux              outside tmux: session manager / inside tmux: menu
@@ -12,7 +12,7 @@ Usage:
   gmux uninstall    remove the gmux config
   gmux -v           show the version
 """
-VERSION = "1.11.0"
+VERSION = "1.15.0"
 
 import curses
 import json
@@ -462,16 +462,31 @@ class Picker:
             self.set_rows(rows)
 
 
+def expand(texts, pane):
+    """Expand tmux formats (#W, #S, on/off states) of `texts` for `pane`.
+    Return None if tmux fails."""
+    joined = " @@ ".join(t.replace("%", "%%") for t in texts)  # display-message: %% -> %
+    ok, out = tmux("display-message", "-p", "-t", pane, joined)
+    return out.rstrip("\n").split(" @@ ") if ok else None
+
+
 def expanded_rows(orig):
-    """Menu rows with labels and commands expanded (#W, #S, on/off states) for
-    pane `orig`, before the menu pane changes the window name."""
+    """Menu rows with labels and commands expanded for pane `orig`, before the
+    menu pane changes the window name."""
     rows = picker_rows()
-    texts = [t.replace("%", "%%") for r in rows if r[0] == "item" for t in (r[1], r[3])]
-    ok, out = tmux("display-message", "-p", "-t", orig, " @@ ".join(texts))  # %% -> %
-    if not ok:
+    values = expand([t for r in rows if r[0] == "item" for t in (r[1], r[3])], orig)
+    if values is None:
         return rows
-    values = iter(out.rstrip("\n").split(" @@ "))
+    values = iter(values)
     return [("item", next(values), r[2], next(values)) if r[0] == "item" else r for r in rows]
+
+
+def item_command(key, pane, fallback):
+    """Command of menu item `key` expanded for `pane` right now: the rows shown
+    may be up to a few seconds old (another window was selected meanwhile)."""
+    raw = next((r[3] for r in picker_rows() if r[0] == "item" and r[2] == key), None)
+    values = expand([raw], pane) if raw else None
+    return values[0] if values else fallback
 
 
 CLOSE_KEYS = ("s", "z", "N", "S", "d")  # Sessions, Zoom, New/Switch session, Detach
@@ -538,9 +553,11 @@ class MenuPane:
 
     def choose(self, row):
         _, _, key, cmd = row
+        self.follow()  # the user may have changed window since the last tick
         target = self.target()
         if target is None:
             return False
+        cmd = item_command(key, target, cmd)
         if key in CLOSE_KEYS:
             self.run_after_close(cmd, target)
             return False
@@ -551,10 +568,10 @@ class MenuPane:
         return True
 
     def tick(self):
+        self.follow()  # first: target() looks for the work pane in the menu's window
         target = self.target()
         if target is None:
             return None
-        self.follow()
         return expanded_rows(target)
 
 
@@ -706,8 +723,56 @@ BEGIN, END = "# >>> gmux >>>", "# <<< gmux <<<"
 MENU_BIND = f"run-shell -b '\"{SELF}\" menu \"#{{pane_id}}\"'"
 
 
+def tmux_version():
+    """tmux version as a float (3.2a -> 3.2), 0 if unknown."""
+    ok, out = tmux("-V")
+    digits = "".join(c for c in out.split()[-1] if c.isdigit() or c == ".") if ok and out else ""
+    try:
+        return float(digits)
+    except ValueError:
+        return 0.0
+
+
+# tmux formats shared by the status bar and the pane bars
+IS_MENU = "#{m:* pick *,#{pane_start_command}}"  # the gmux menu pane runs `gmux pick`
+PANE_LABEL = f"#{{?{IS_MENU},gmux menu,#P: #{{pane_current_command}}  #{{b:pane_current_path}}}}"
+IS_SPLIT = f"#{{m:xx*,#{{P:#{{?{IS_MENU},,x}}}}}}"  # one x per real pane: 2+ = split
+
+
+def windows_conf():
+    """Make windows easy to tell apart: the current one is highlighted in the
+    status bar, and switching windows shows its number and name for a moment
+    (only when the session has more than one window)."""
+    duration = "-d 2000 " if tmux_version() >= 3.2 else ""  # -d needs tmux 3.2
+    return [
+        "set -g window-status-separator ''",
+        "set -g window-status-format ' #I:#W#{?window_zoomed_flag, [Z],} '",
+        f"set -g window-status-current-format ' #I:#W#{{?window_zoomed_flag, [Z],}}"
+        f"#{{?{IS_SPLIT}, > {PANE_LABEL},}} '",  # active pane when split
+        "set -g window-status-current-style 'fg=black,bg=yellow,bold'",
+        # index 90: keeps any session-window-changed hook the user set at index 0
+        "set-hook -g session-window-changed[90] "
+        "{ if -F '#{!=:#{session_windows},1}' "
+        f"{{ display-message {duration}'Window #I: #W  (#{{session_windows}} windows)' }} }}",
+    ]
+
+
+def panes_conf():
+    """When a window is split, draw a bar under each pane (number, running
+    command, folder) and highlight the active one. The bars are switched on
+    per window only while it holds at least two panes, the gmux menu aside,
+    so an unsplit window keeps its full height."""
+    style = "#{?pane_active,#[fg=black#,bg=yellow#,bold] > ,#[fg=default#,bg=default]   }"
+    return [
+        f"set -g pane-border-format '{style}{PANE_LABEL} #[default]'",
+        "set -g pane-active-border-style 'fg=yellow'",
+        f"set-hook -g window-layout-changed[90] {{ if -F '{IS_SPLIT}' "
+        "{ set -w pane-border-status bottom } { set -w pane-border-status off } }",
+    ]
+
+
 def gmux_conf():
-    """Generated tmux config: mouse and menu access (keyboard + mouse)."""
+    """Generated tmux config: mouse, window and pane indicators, menu access."""
     return "\n".join([
         f"# Generated by gmux v{VERSION}. Do not edit: regenerated automatically by gmux.",
         "set -g mouse on",
@@ -718,6 +783,8 @@ def gmux_conf():
         # alternate screen: keep tmux off it for them so the wheel scrolls tmux
         "set -s terminal-overrides[89] 'xterm:smcup@:rmcup@'",
         *clipboard_conf(),
+        *windows_conf(),
+        *panes_conf(),
         f"bind m {MENU_BIND}",
         # left click on the session name, right click anywhere on the status bar
         *(f"bind -n {ev} {MENU_BIND}"
