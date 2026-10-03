@@ -1,10 +1,9 @@
-<img width="1024" height="336" alt="gmux-logo-dark" src="https://github.com/user-attachments/assets/dd93b9e6-46e3-44c4-b29b-af7dba657666" />
+<img width="1024" height="293" alt="mumux-logo-dark" src="https://github.com/user-attachments/assets/b2529cac-c9bd-4c02-9992-40e9409962f9" />
 
-> **gmux 1.15.0** · doc rev. 1 · September 27, 2026
+> **mumux 1.16.0** · doc rev. 2 · October 3, 2026 · formerly **gmux**
 
 A simple interface for **tmux**, made by somebody who always forgets how to use
-it.  
-A **session manager** to create, join, rename or kill sessions, and a
+it: a **session manager** to create, join, rename or kill sessions, and a
 **menu** to handle windows and panes without remembering a single shortcut.
 
 Everything works **with the mouse as well as the keyboard**: hover highlight,
@@ -31,28 +30,32 @@ xclip is optional but recommanded to ensure copy / paste is working
 
 ```bash
 sudo apt install -y tmux python3 xclip
-sudo curl -fsSL https://raw.githubusercontent.com/Tontonjo/gmux/main/gmux -o /usr/local/bin/gmux
-sudo chmod +x /usr/local/bin/gmux
-gmux
+sudo curl -fsSL https://raw.githubusercontent.com/Tontonjo/mumux/main/mumux -o /usr/local/bin/mumux
+sudo chmod +x /usr/local/bin/mumux
+mumux
 ```
 
-`gmux install` adds one line to `~/.tmux.conf` (generated config in
-`~/.config/gmux/`) and reloads it if tmux is already running. It runs **per
+`mumux install` adds one line to `~/.tmux.conf` (generated config in
+`~/.config/mumux/`) and reloads it if tmux is already running. It runs **per
 user**.
 
-**Update**: run the `curl` and `chmod` commands again, then `gmux install`.
+**Update**: run the `curl` and `chmod` commands again, then `mumux install`.
 
-**Uninstall**: `gmux uninstall` then `sudo rm /usr/local/bin/gmux`.
+**Uninstall**: `mumux uninstall` then `sudo rm /usr/local/bin/mumux`.
+
+**Coming from gmux**: install `mumux` as above, run it once (it replaces the
+gmux block in `~/.tmux.conf` and removes `~/.config/gmux/`), then
+`sudo rm /usr/local/bin/gmux`.
 
 ## Usage
 
 | Command | Effect |
 |---|---|
-| `gmux` | Outside tmux: session manager. Inside tmux: opens the menu |
-| `gmux NAME` | Joins session `NAME`, creates it if it does not exist |
-| `gmux tui` | Session manager |
-| `gmux menu` | Opens the menu |
-| `gmux -v` | Shows the version |
+| `mumux` | Outside tmux: session manager. Inside tmux: opens the menu |
+| `mumux NAME` | Joins session `NAME`, creates it if it does not exist |
+| `mumux tui` | Session manager |
+| `mumux menu` | Opens the menu |
+| `mumux -v` | Shows the version |
 
 **Session manager**: arrows or click to select, Enter or double click to join,
 `n` new, `r` rename, `x` kill, `q` quit. The button bar at the bottom is clickable.
@@ -68,7 +71,7 @@ click closes it.
 
 ## Good to know
 
-- **Copy and paste**: gmux turns on the mouse in tmux, which takes over the
+- **Copy and paste**: mumux turns on the mouse in tmux, which takes over the
   terminal's own selection. Hold **Shift** while selecting to copy as usual,
   or turn the mouse off from Settings in the menu.
 - `Ctrl+b m` replaces the tmux "mark pane" shortcut.
